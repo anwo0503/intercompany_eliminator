@@ -47,6 +47,8 @@ _COLOR_UNMATCHED = QColor("#FFE4E4")
 _COLOR_SEPARATOR = QColor("#D9D9D9")
 _COLOR_BLACK = QColor("#000000")
 
+_COMMA_COLS = {"Quantity", "Total money — Buyer side", "Total money — Seller side"}
+
 
 class ResultTableModel(QAbstractTableModel):
     """Table model wrapping a result DataFrame with section-aware row coloring."""
@@ -55,6 +57,9 @@ class ResultTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._df = df.reset_index(drop=True)
         self._row_sections: list[str] = self._compute_sections()
+        self._comma_col_indices: set[int] = {
+            i for i, col in enumerate(self._df.columns) if col in _COMMA_COLS
+        }
 
     def _compute_sections(self) -> list[str]:
         sections: list[str] = []
@@ -93,6 +98,11 @@ class ResultTableModel(QAbstractTableModel):
                 pass
             if isinstance(val, date):
                 return val.strftime("%d/%m/%Y")
+            if col in self._comma_col_indices:
+                try:
+                    return f"{int(val):,}"
+                except (ValueError, TypeError):
+                    pass
             return str(val)
 
         if role == Qt.BackgroundRole:
