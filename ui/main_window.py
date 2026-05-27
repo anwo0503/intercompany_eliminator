@@ -45,6 +45,7 @@ _SEPARATOR_LABELS = {_LABEL_MISMATCH, _LABEL_UNMATCHED}
 _COLOR_MISMATCH = QColor("#FFFACD")
 _COLOR_UNMATCHED = QColor("#FFE4E4")
 _COLOR_SEPARATOR = QColor("#D9D9D9")
+_COLOR_BLACK = QColor("#000000")
 
 
 class ResultTableModel(QAbstractTableModel):
@@ -102,6 +103,12 @@ class ResultTableModel(QAbstractTableModel):
                 return _COLOR_MISMATCH
             if sec == "unmatched":
                 return _COLOR_UNMATCHED
+            return None
+
+        if role == Qt.ForegroundRole:
+            sec = self._row_sections[row]
+            if sec in ("mismatch", "unmatched"):
+                return _COLOR_BLACK
             return None
 
         if role == Qt.TextAlignmentRole:
