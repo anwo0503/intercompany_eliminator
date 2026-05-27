@@ -8,6 +8,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from engine.matcher import MatchResult
+from engine.translations import COL_KEY, SEP_KEY, t
 
 COLUMNS = [
     "Buyer Side",
@@ -179,7 +180,8 @@ def export_to_excel(result_df: pd.DataFrame, output_path: str) -> None:
     wb = Workbook()
     ws = wb.active
 
-    ws.append(COLUMNS)
+    translated_cols = [t(COL_KEY[col]) for col in COLUMNS]
+    ws.append(translated_cols)
     for cell in ws[1]:
         cell.font = Font(bold=True)
 
@@ -187,7 +189,15 @@ def export_to_excel(result_df: pd.DataFrame, output_path: str) -> None:
     col_indices = {col: idx + 1 for idx, col in enumerate(COLUMNS)}
 
     for _, row in result_df.iterrows():
-        values = [None if pd.isna(row[col]) else row[col] for col in COLUMNS]
+        values = []
+        for col in COLUMNS:
+            val = None if pd.isna(row[col]) else row[col]
+            if isinstance(val, str):
+                if col == "Buyer Side" and val in SEP_KEY:
+                    val = t(SEP_KEY[val])
+                elif col == "Item" and val == _SUBTOTAL_ITEM_LABEL:
+                    val = t("subtotal")
+            values.append(val)
         ws.append(values)
         row_idx = ws.max_row
 
@@ -216,7 +226,7 @@ def export_to_excel(result_df: pd.DataFrame, output_path: str) -> None:
 
     for col_idx, col_name in enumerate(COLUMNS, start=1):
         col_letter = get_column_letter(col_idx)
-        max_len = len(col_name)
+        max_len = len(t(COL_KEY[col_name]))
         for row_idx in range(2, ws.max_row + 1):
             cell_val = ws.cell(row=row_idx, column=col_idx).value
             if cell_val is not None:

@@ -36,6 +36,7 @@ from engine.mapping import get_valid_pairs
 from engine.matcher import match_transactions
 from engine.parser import filter_by_period, parse_buy_file, parse_sell_file
 from engine.result_builder import _SUBTOTAL_ITEM_LABEL, build_result_table, export_to_excel
+from engine.translations import COL_KEY, SEP_KEY, set_language, t
 
 
 _LABEL_MISMATCH = "--- AMOUNT MISMATCHES ---"
@@ -100,6 +101,11 @@ class ResultTableModel(QAbstractTableModel):
                     return ""
             except (TypeError, ValueError):
                 pass
+            if isinstance(val, str):
+                if val in SEP_KEY:
+                    return t(SEP_KEY[val])
+                if val == _SUBTOTAL_ITEM_LABEL:
+                    return t("subtotal")
             if isinstance(val, date):
                 return val.strftime("%d/%m/%Y")
             if col in self._comma_col_indices:
@@ -144,7 +150,8 @@ class ResultTableModel(QAbstractTableModel):
         if role != Qt.DisplayRole:
             return None
         if orientation == Qt.Horizontal:
-            return str(self._df.columns[section])
+            col_name = str(self._df.columns[section])
+            return t(COL_KEY[col_name]) if col_name in COL_KEY else col_name
         return str(section + 1)
 
     def sort(self, column: int, order: Qt.SortOrder = Qt.AscendingOrder) -> None:
@@ -234,7 +241,7 @@ class _MatchWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("ICE — InterCompany Eliminator")
+        self.setWindowTitle(t("window_title"))
         self.setMinimumSize(1000, 700)
 
         self._buy_path: str | None = None
@@ -248,6 +255,7 @@ class MainWindow(QMainWindow):
         root.setSpacing(8)
         root.setContentsMargins(12, 12, 12, 12)
 
+        root.addWidget(self._build_language_selector())
         root.addWidget(self._build_import_section())
         root.addWidget(self._build_options_section())
         root.addWidget(self._build_run_button())
@@ -256,13 +264,25 @@ class MainWindow(QMainWindow):
 
         self._update_run_button()
 
+    def _build_language_selector(self) -> QWidget:
+        widget = QWidget()
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addStretch()
+        self._combo_lang = QComboBox()
+        self._combo_lang.addItem("Tiếng Việt", "vi")
+        self._combo_lang.addItem("English", "en")
+        self._combo_lang.currentIndexChanged.connect(self._on_language_changed)
+        layout.addWidget(self._combo_lang)
+        return widget
+
     def _build_import_section(self) -> QGroupBox:
         box = QGroupBox("File Import")
         layout = QVBoxLayout(box)
 
         buy_row = QHBoxLayout()
-        self._btn_buy = QPushButton("Import Buy File")
-        self._lbl_buy = QLabel("No file selected")
+        self._btn_buy = QPushButton(t("import_buy"))
+        self._lbl_buy = QLabel(t("no_file"))
         self._btn_buy.setFixedWidth(140)
         self._btn_buy.clicked.connect(self._import_buy)
         buy_row.addWidget(self._btn_buy)
@@ -270,8 +290,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(buy_row)
 
         sell_row = QHBoxLayout()
-        self._btn_sell = QPushButton("Import Sell File")
-        self._lbl_sell = QLabel("No file selected")
+        self._btn_sell = QPushButton(t("import_sell"))
+        self._lbl_sell = QLabel(t("no_file"))
         self._btn_sell.setFixedWidth(140)
         self._btn_sell.clicked.connect(self._import_sell)
         sell_row.addWidget(self._btn_sell)
@@ -284,7 +304,8 @@ class MainWindow(QMainWindow):
         box = QGroupBox("Options")
         layout = QHBoxLayout(box)
 
-        layout.addWidget(QLabel("Buyer-Seller Pair:"))
+        self._lbl_pair = QLabel(t("pair_label"))
+        layout.addWidget(self._lbl_pair)
         self._combo_pair = QComboBox()
         for buyer, seller in get_valid_pairs():
             self._combo_pair.addItem(f"{buyer} ↔ {seller}", (buyer, seller))
@@ -292,7 +313,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._combo_pair)
 
         layout.addSpacing(24)
-        layout.addWidget(QLabel("Start Date:"))
+        self._lbl_start = QLabel(t("start_date"))
+        layout.addWidget(self._lbl_start)
         self._date_start = QDateEdit()
         self._date_start.setDisplayFormat("dd/MM/yyyy")
         self._date_start.setCalendarPopup(True)
@@ -301,7 +323,8 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._date_start)
 
         layout.addSpacing(12)
-        layout.addWidget(QLabel("End Date:"))
+        self._lbl_end = QLabel(t("end_date"))
+        layout.addWidget(self._lbl_end)
         self._date_end = QDateEdit()
         self._date_end.setDisplayFormat("dd/MM/yyyy")
         self._date_end.setCalendarPopup(True)
@@ -312,14 +335,14 @@ class MainWindow(QMainWindow):
         return box
 
     def _build_run_button(self) -> QPushButton:
-        self._btn_run = QPushButton("Run Matching")
+        self._btn_run = QPushButton(t("run_button"))
         self._btn_run.setFixedHeight(40)
         self._btn_run.clicked.connect(self._run_matching)
         return self._btn_run
 
     def _build_results_section(self) -> QGroupBox:
-        box = QGroupBox("Results")
-        layout = QVBoxLayout(box)
+        self._grp_results = QGroupBox(t("results_label"))
+        layout = QVBoxLayout(self._grp_results)
         self._table = QTableView()
         self._table.setSortingEnabled(True)
         self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
@@ -327,14 +350,38 @@ class MainWindow(QMainWindow):
         self._table.setAlternatingRowColors(False)
         self._table.setSelectionBehavior(QTableView.SelectRows)
         layout.addWidget(self._table)
-        return box
+        return self._grp_results
 
     def _build_export_button(self) -> QPushButton:
-        self._btn_export = QPushButton("Export to Excel")
+        self._btn_export = QPushButton(t("export_button"))
         self._btn_export.setFixedHeight(36)
         self._btn_export.setEnabled(False)
         self._btn_export.clicked.connect(self._export)
         return self._btn_export
+
+    def _on_language_changed(self) -> None:
+        set_language(self._combo_lang.currentData())
+        self._retranslate_ui()
+
+    def _retranslate_ui(self) -> None:
+        self.setWindowTitle(t("window_title"))
+        self._btn_buy.setText(t("import_buy"))
+        if self._buy_path is None:
+            self._lbl_buy.setText(t("no_file"))
+        self._btn_sell.setText(t("import_sell"))
+        if self._sell_path is None:
+            self._lbl_sell.setText(t("no_file"))
+        self._lbl_pair.setText(t("pair_label"))
+        self._lbl_start.setText(t("start_date"))
+        self._lbl_end.setText(t("end_date"))
+        if self._worker is None or not self._worker.isRunning():
+            self._btn_run.setText(t("run_button"))
+        self._btn_export.setText(t("export_button"))
+        self._grp_results.setTitle(t("results_label"))
+        if self._result_df is not None:
+            model = ResultTableModel(self._result_df)
+            self._table.setModel(model)
+            self._table.resizeColumnsToContents()
 
     def _import_buy(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
@@ -385,13 +432,13 @@ class MainWindow(QMainWindow):
         self._table.setModel(model)
         self._table.resizeColumnsToContents()
         self._btn_export.setEnabled(True)
-        self._btn_run.setText("Run Matching")
+        self._btn_run.setText(t("run_button"))
         self._update_run_button()
 
     @Slot(str)
     def _on_match_error(self, message: str) -> None:
         QApplication.restoreOverrideCursor()
-        self._btn_run.setText("Run Matching")
+        self._btn_run.setText(t("run_button"))
         self._update_run_button()
         QMessageBox.critical(self, "Processing Error", message)
 
@@ -400,7 +447,7 @@ class MainWindow(QMainWindow):
             return
         buyer, seller = self._combo_pair.currentData()
         today_str = date.today().strftime("%Y%m%d")
-        default_name = f"ICE_Result_{buyer}_{seller}_{today_str}.xlsx"
+        default_name = t("export_filename").format(buyer=buyer, seller=seller, date=today_str)
 
         path, _ = QFileDialog.getSaveFileName(
             self, "Export to Excel", default_name, "Excel Files (*.xlsx)"

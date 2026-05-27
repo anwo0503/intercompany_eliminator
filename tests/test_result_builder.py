@@ -186,11 +186,14 @@ def test_export_to_excel_creates_readable_file():
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
         path = f.name
     try:
+        from engine.translations import COL_KEY, set_language, t
+        set_language("en")
         export_to_excel(df, path)
         assert os.path.exists(path)
         assert os.path.getsize(path) > 0
         wb_df = pd.read_excel(path)
-        assert list(wb_df.columns) == COLUMNS
+        expected_cols = [t(COL_KEY[col]) for col in COLUMNS]
+        assert list(wb_df.columns) == expected_cols
     finally:
         os.unlink(path)
 
