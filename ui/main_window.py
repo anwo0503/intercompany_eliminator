@@ -123,7 +123,7 @@ class ResultTableModel(QAbstractTableModel):
 
         if role == Qt.ForegroundRole:
             sec = self._row_sections[row]
-            if sec in ("separator", "mismatch", "unmatched"):
+            if sec in ("separator", "subtotal", "mismatch", "unmatched"):
                 return _COLOR_BLACK
             return None
 

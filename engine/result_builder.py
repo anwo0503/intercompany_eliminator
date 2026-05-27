@@ -206,7 +206,7 @@ def export_to_excel(result_df: pd.DataFrame, output_path: str) -> None:
         elif is_subtotal:
             for cell in ws[row_idx]:
                 cell.fill = subtotal_fill
-                cell.font = bold_font
+                cell.font = Font(bold=True, color="FF000000")
 
         for col in _DATE_COLS:
             cell = ws.cell(row=row_idx, column=col_indices[col])
