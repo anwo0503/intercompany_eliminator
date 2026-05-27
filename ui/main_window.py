@@ -14,7 +14,7 @@ from PySide6.QtCore import (
     Signal,
     Slot,
 )
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 from engine.mapping import get_valid_pairs
 from engine.matcher import match_transactions
 from engine.parser import filter_by_period, parse_buy_file, parse_sell_file
-from engine.result_builder import build_result_table, export_to_excel
+from engine.result_builder import _SUBTOTAL_ITEM_LABEL, build_result_table, export_to_excel
 
 
 _LABEL_MISMATCH = "--- AMOUNT MISMATCHES ---"
@@ -46,6 +46,7 @@ _COLOR_MISMATCH = QColor("#FFFACD")
 _COLOR_UNMATCHED = QColor("#FFE4E4")
 _COLOR_SEPARATOR = QColor("#D9D9D9")
 _COLOR_BLACK = QColor("#000000")
+_COLOR_WHITE = QColor("#FFFFFF")
 
 _COMMA_COLS = {"Quantity", "Total money — Buyer side", "Total money — Seller side"}
 
@@ -65,13 +66,16 @@ class ResultTableModel(QAbstractTableModel):
         sections: list[str] = []
         current = "exact"
         for i in range(len(self._df)):
-            val = self._df.iloc[i, 0]
+            val = self._df.iloc[i, 0]  # Buyer Side
+            item_val = self._df.iloc[i, 4]  # Item
             if isinstance(val, str) and val in _SEPARATOR_LABELS:
                 sections.append("separator")
                 if val == _LABEL_MISMATCH:
                     current = "mismatch"
                 elif val == _LABEL_UNMATCHED:
                     current = "unmatched"
+            elif isinstance(item_val, str) and item_val == _SUBTOTAL_ITEM_LABEL:
+                sections.append(f"subtotal_{current}")
             else:
                 sections.append(current)
         return sections
@@ -109,16 +113,26 @@ class ResultTableModel(QAbstractTableModel):
             sec = self._row_sections[row]
             if sec == "separator":
                 return _COLOR_SEPARATOR
-            if sec == "mismatch":
+            if sec in ("mismatch", "subtotal_mismatch"):
                 return _COLOR_MISMATCH
-            if sec == "unmatched":
+            if sec in ("unmatched", "subtotal_unmatched"):
                 return _COLOR_UNMATCHED
             return None
 
         if role == Qt.ForegroundRole:
             sec = self._row_sections[row]
-            if sec in ("mismatch", "unmatched"):
+            if sec in ("separator", "mismatch", "unmatched", "subtotal_mismatch", "subtotal_unmatched"):
                 return _COLOR_BLACK
+            if sec == "subtotal_exact":
+                return _COLOR_WHITE
+            return None
+
+        if role == Qt.FontRole:
+            sec = self._row_sections[row]
+            if sec == "separator" or sec.startswith("subtotal_"):
+                font = QFont()
+                font.setBold(True)
+                return font
             return None
 
         if role == Qt.TextAlignmentRole:
@@ -145,19 +159,25 @@ class ResultTableModel(QAbstractTableModel):
         col_name = df.columns[column]
         ascending = order == Qt.AscendingOrder
 
+        def _sorted_section(sub: pd.DataFrame) -> pd.DataFrame:
+            is_subtotal = sub.iloc[:, 4].apply(
+                lambda v: isinstance(v, str) and v == _SUBTOTAL_ITEM_LABEL
+            )
+            data = sub[~is_subtotal]
+            subtotals = sub[is_subtotal]
+            try:
+                sorted_data = data.sort_values(col_name, ascending=ascending, na_position="last")
+            except Exception:
+                sorted_data = data
+            return pd.concat([sorted_data, subtotals])
+
         label_indices = [
             i for i in range(len(df))
             if isinstance(df.iloc[i, 0], str) and df.iloc[i, 0] in _SEPARATOR_LABELS
         ]
 
         if not label_indices:
-            return df.sort_values(col_name, ascending=ascending, na_position="last").reset_index(drop=True)
-
-        def _sorted_section(sub: pd.DataFrame) -> pd.DataFrame:
-            try:
-                return sub.sort_values(col_name, ascending=ascending, na_position="last")
-            except Exception:
-                return sub
+            return _sorted_section(df).reset_index(drop=True)
 
         parts: list[pd.DataFrame] = []
         prev_end = 0

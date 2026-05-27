@@ -8,10 +8,13 @@ import pandas as pd
 import pytest
 
 from engine.matcher import MatchResult
+from openpyxl import load_workbook
+
 from engine.result_builder import (
     COLUMNS,
     _LABEL_MISMATCH,
     _LABEL_UNMATCHED,
+    _SUBTOTAL_ITEM_LABEL,
     build_result_table,
     export_to_excel,
 )
@@ -101,11 +104,11 @@ def test_section1_sorted_by_item_then_date():
     df = build_result_table(result, "B", "S")
 
     mismatch_idx, _ = _section_indices(df)
-    # blank row is at mismatch_idx - 1, so section 1 rows are [0 .. mismatch_idx - 2]
-    section1 = df.iloc[: mismatch_idx - 1].reset_index(drop=True)
+    # blank row at mismatch_idx-1, subtotal at mismatch_idx-2; data rows before that
+    section1_data = df.iloc[: mismatch_idx - 2].reset_index(drop=True)
 
-    assert section1["Item"].tolist() == ["Alpha", "Alpha", "Beta"]
-    alpha = section1[section1["Item"] == "Alpha"]["Invoice date — Buyer side"].tolist()
+    assert section1_data["Item"].tolist() == ["Alpha", "Alpha", "Beta"]
+    alpha = section1_data[section1_data["Item"] == "Alpha"]["Invoice date — Buyer side"].tolist()
     assert alpha == sorted(alpha)
 
 
@@ -190,3 +193,109 @@ def test_export_to_excel_creates_readable_file():
         assert list(wb_df.columns) == COLUMNS
     finally:
         os.unlink(path)
+
+
+def test_separator_black_font_in_export():
+    """Separator rows in the exported Excel file have black (FF000000) font color."""
+    result = _make_result(
+        exact=[_match_row()],
+        mismatches=[_match_row(buy_money=1000, sell_money=1005)],
+    )
+    df = build_result_table(result, "B", "S")
+
+    with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+        path = f.name
+    try:
+        export_to_excel(df, path)
+        wb = load_workbook(path)
+        ws = wb.active
+        for row_idx in range(2, ws.max_row + 1):
+            buyer_cell = ws.cell(row=row_idx, column=1)
+            if buyer_cell.value in (_LABEL_MISMATCH, _LABEL_UNMATCHED):
+                for cell in ws[row_idx]:
+                    assert cell.font.color.rgb == "FF000000", (
+                        f"Separator row {row_idx} has non-black font: {cell.font.color.rgb}"
+                    )
+    finally:
+        os.unlink(path)
+
+
+def test_unmatched_buy_seller_side_blank():
+    """Unmatched buy-side rows have a blank Seller Side column."""
+    result = _make_result(
+        unmatched_buy=[
+            {"item": "ItemX", "po_code": "PO-1", "invoice_date": date(2024, 3, 1), "quantity": 2, "total_money": 200},
+        ],
+    )
+    df = build_result_table(result, "B", "S")
+
+    _, unmatched_idx = _section_indices(df)
+    section3 = df.iloc[unmatched_idx + 1:].reset_index(drop=True)
+    buy_row = section3[section3["Buyer Side"] == "B"].iloc[0]
+
+    assert pd.isna(buy_row["Seller Side"])
+
+
+def test_unmatched_sell_buyer_side_blank():
+    """Unmatched sell-side rows have a blank Buyer Side column."""
+    result = _make_result(
+        unmatched_sell=[
+            {"item": "ItemY", "so_code": "SO-2", "invoice_date": date(2024, 4, 1), "quantity": 3, "total_money": 300},
+        ],
+    )
+    df = build_result_table(result, "B", "S")
+
+    _, unmatched_idx = _section_indices(df)
+    section3 = df.iloc[unmatched_idx + 1:].reset_index(drop=True)
+    sell_row = section3[section3["Seller Side"] == "S"].iloc[0]
+
+    assert pd.isna(sell_row["Buyer Side"])
+
+
+def test_subtotal_rows_exist_with_correct_sums():
+    """Each non-empty section ends with a subtotal row containing correct column sums."""
+    result = _make_result(
+        exact=[
+            _match_row(buy_item="A", buy_qty=5, buy_money=500, sell_money=500),
+            _match_row(buy_item="B", buy_qty=3, buy_money=300, sell_money=300),
+        ],
+        mismatches=[
+            _match_row(buy_item="C", buy_qty=2, buy_money=200, sell_money=195),
+        ],
+        unmatched_buy=[
+            {"item": "D", "po_code": "PO-D", "invoice_date": date(2024, 5, 1), "quantity": 4, "total_money": 400},
+        ],
+        unmatched_sell=[
+            {"item": "E", "so_code": "SO-E", "invoice_date": date(2024, 5, 2), "quantity": 6, "total_money": 600},
+        ],
+    )
+    df = build_result_table(result, "B", "S")
+
+    mismatch_idx, unmatched_idx = _section_indices(df)
+
+    # Section 1 subtotal is the row just before the blank+separator
+    s1_subtotal = df.iloc[mismatch_idx - 2]
+    assert s1_subtotal["Item"] == _SUBTOTAL_ITEM_LABEL
+    assert s1_subtotal["Quantity"] == 8   # 5 + 3
+    assert s1_subtotal["Total money — Buyer side"] == 800   # 500 + 300
+    assert s1_subtotal["Total money — Seller side"] == 800  # 500 + 300
+    assert s1_subtotal["Difference"] == 0  # 0 + 0
+
+    # Section 2 subtotal
+    s2_subtotal = df.iloc[unmatched_idx - 2]
+    assert s2_subtotal["Item"] == _SUBTOTAL_ITEM_LABEL
+    assert s2_subtotal["Quantity"] == 2
+    assert s2_subtotal["Total money — Buyer side"] == 200
+    assert s2_subtotal["Total money — Seller side"] == 195
+    assert s2_subtotal["Difference"] == 5  # 200 - 195
+
+    # Section 3 subtotal is the last row
+    s3_subtotal = df.iloc[-1]
+    assert s3_subtotal["Item"] == _SUBTOTAL_ITEM_LABEL
+    assert s3_subtotal["Quantity"] == 10   # 4 + 6
+    # Buy-side money: only the buy unmatched row (400), sell side is None
+    assert s3_subtotal["Total money — Buyer side"] == 400
+    # Sell-side money: only the sell unmatched row (600)
+    assert s3_subtotal["Total money — Seller side"] == 600
+    # Difference: all None in unmatched section
+    assert pd.isna(s3_subtotal["Difference"])
