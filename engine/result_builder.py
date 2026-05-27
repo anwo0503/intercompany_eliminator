@@ -184,9 +184,6 @@ def export_to_excel(result_df: pd.DataFrame, output_path: str) -> None:
         cell.font = Font(bold=True)
 
     gray_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
-    subtotal_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
-    black_font = Font(color="FF000000")
-    bold_font = Font(bold=True)
     col_indices = {col: idx + 1 for idx, col in enumerate(COLUMNS)}
 
     for _, row in result_df.iterrows():
@@ -202,10 +199,9 @@ def export_to_excel(result_df: pd.DataFrame, output_path: str) -> None:
         if is_separator:
             for cell in ws[row_idx]:
                 cell.fill = gray_fill
-                cell.font = black_font
+                cell.font = Font(bold=True, color="FF000000")
         elif is_subtotal:
             for cell in ws[row_idx]:
-                cell.fill = subtotal_fill
                 cell.font = Font(bold=True, color="FF000000")
 
         for col in _DATE_COLS:

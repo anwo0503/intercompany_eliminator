@@ -45,7 +45,6 @@ _SEPARATOR_LABELS = {_LABEL_MISMATCH, _LABEL_UNMATCHED}
 _COLOR_MISMATCH = QColor("#FFFACD")
 _COLOR_UNMATCHED = QColor("#FFE4E4")
 _COLOR_SEPARATOR = QColor("#D9D9D9")
-_COLOR_SUBTOTAL = QColor("#F0F0F0")
 _COLOR_BLACK = QColor("#000000")
 
 _COMMA_COLS = {"Quantity", "Total money — Buyer side", "Total money — Seller side"}
@@ -75,7 +74,7 @@ class ResultTableModel(QAbstractTableModel):
                 elif val == _LABEL_UNMATCHED:
                     current = "unmatched"
             elif isinstance(item_val, str) and item_val == _SUBTOTAL_ITEM_LABEL:
-                sections.append("subtotal")
+                sections.append(f"subtotal_{current}")
             else:
                 sections.append(current)
         return sections
@@ -113,22 +112,21 @@ class ResultTableModel(QAbstractTableModel):
             sec = self._row_sections[row]
             if sec == "separator":
                 return _COLOR_SEPARATOR
-            if sec == "subtotal":
-                return _COLOR_SUBTOTAL
-            if sec == "mismatch":
+            if sec in ("mismatch", "subtotal_mismatch"):
                 return _COLOR_MISMATCH
-            if sec == "unmatched":
+            if sec in ("unmatched", "subtotal_unmatched"):
                 return _COLOR_UNMATCHED
             return None
 
         if role == Qt.ForegroundRole:
             sec = self._row_sections[row]
-            if sec in ("separator", "subtotal", "mismatch", "unmatched"):
+            if sec in ("separator", "mismatch", "unmatched") or sec.startswith("subtotal_"):
                 return _COLOR_BLACK
             return None
 
         if role == Qt.FontRole:
-            if self._row_sections[row] == "subtotal":
+            sec = self._row_sections[row]
+            if sec == "separator" or sec.startswith("subtotal_"):
                 font = QFont()
                 font.setBold(True)
                 return font
