@@ -27,6 +27,8 @@ _LABEL_MISMATCH = "--- AMOUNT MISMATCHES ---"
 _LABEL_UNMATCHED = "--- UNMATCHED TRANSACTIONS ---"
 _SEPARATOR_LABELS = {_LABEL_MISMATCH, _LABEL_UNMATCHED}
 
+_SUBTOTAL_ITEM_LABEL = "Subtotal"
+
 _DATE_COLS = {"Invoice date — Buyer side", "Invoice date — Seller side"}
 _MONEY_COLS = {"Total money — Buyer side", "Total money — Seller side", "Difference"}
 
@@ -58,7 +60,7 @@ def _unmatched_buy_rows(df: pd.DataFrame, buyer_short: str, seller_short: str) -
     for _, r in df.iterrows():
         rows.append({
             "Buyer Side": buyer_short,
-            "Seller Side": seller_short,
+            "Seller Side": None,
             "Invoice date — Buyer side": r["invoice_date"],
             "Invoice date — Seller side": None,
             "Item": r["item"],
@@ -76,7 +78,7 @@ def _unmatched_sell_rows(df: pd.DataFrame, buyer_short: str, seller_short: str) 
     rows = []
     for _, r in df.iterrows():
         rows.append({
-            "Buyer Side": buyer_short,
+            "Buyer Side": None,
             "Seller Side": seller_short,
             "Invoice date — Buyer side": None,
             "Invoice date — Seller side": r["invoice_date"],
@@ -98,6 +100,21 @@ def _blank_row() -> dict:
 def _label_row(label: str) -> dict:
     row = _blank_row()
     row["Buyer Side"] = label
+    return row
+
+
+def _subtotal_row(section_df: pd.DataFrame) -> dict:
+    row = _blank_row()
+    row["Item"] = _SUBTOTAL_ITEM_LABEL
+
+    def _sum_col(col: str) -> int | None:
+        vals = section_df[col].dropna()
+        return int(vals.sum()) if len(vals) > 0 else None
+
+    row["Quantity"] = _sum_col("Quantity")
+    row["Total money — Buyer side"] = _sum_col("Total money — Buyer side")
+    row["Total money — Seller side"] = _sum_col("Total money — Seller side")
+    row["Difference"] = _sum_col("Difference")
     return row
 
 
@@ -146,7 +163,15 @@ def build_result_table(match_result: MatchResult, buyer_short: str, seller_short
     sep2 = pd.DataFrame([_blank_row(), _label_row(_LABEL_MISMATCH)], columns=COLUMNS)
     sep3 = pd.DataFrame([_blank_row(), _label_row(_LABEL_UNMATCHED)], columns=COLUMNS)
 
-    return pd.concat([s1, sep2, s2, sep3, s3], ignore_index=True)
+    def _with_subtotal(section: pd.DataFrame) -> list[pd.DataFrame]:
+        if section.empty:
+            return [section]
+        return [section, pd.DataFrame([_subtotal_row(section)], columns=COLUMNS)]
+
+    return pd.concat(
+        [*_with_subtotal(s1), sep2, *_with_subtotal(s2), sep3, *_with_subtotal(s3)],
+        ignore_index=True,
+    )
 
 
 def export_to_excel(result_df: pd.DataFrame, output_path: str) -> None:
@@ -159,6 +184,9 @@ def export_to_excel(result_df: pd.DataFrame, output_path: str) -> None:
         cell.font = Font(bold=True)
 
     gray_fill = PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid")
+    subtotal_fill = PatternFill(start_color="F0F0F0", end_color="F0F0F0", fill_type="solid")
+    black_font = Font(color="FF000000")
+    bold_font = Font(bold=True)
     col_indices = {col: idx + 1 for idx, col in enumerate(COLUMNS)}
 
     for _, row in result_df.iterrows():
@@ -167,9 +195,18 @@ def export_to_excel(result_df: pd.DataFrame, output_path: str) -> None:
         row_idx = ws.max_row
 
         buyer_val = row["Buyer Side"]
-        if isinstance(buyer_val, str) and buyer_val in _SEPARATOR_LABELS:
+        item_val = row["Item"]
+        is_separator = isinstance(buyer_val, str) and buyer_val in _SEPARATOR_LABELS
+        is_subtotal = isinstance(item_val, str) and item_val == _SUBTOTAL_ITEM_LABEL
+
+        if is_separator:
             for cell in ws[row_idx]:
                 cell.fill = gray_fill
+                cell.font = black_font
+        elif is_subtotal:
+            for cell in ws[row_idx]:
+                cell.fill = subtotal_fill
+                cell.font = bold_font
 
         for col in _DATE_COLS:
             cell = ws.cell(row=row_idx, column=col_indices[col])
