@@ -45,6 +45,7 @@ _SEPARATOR_LABELS = {_LABEL_MISMATCH, _LABEL_UNMATCHED}
 _COLOR_MISMATCH = QColor("#FFFACD")
 _COLOR_UNMATCHED = QColor("#FFE4E4")
 _COLOR_SEPARATOR = QColor("#D9D9D9")
+_COLOR_WHITE = QColor("#FFFFFF")
 _COLOR_BLACK = QColor("#000000")
 
 _COMMA_COLS = {"Quantity", "Total money — Buyer side", "Total money — Seller side"}
@@ -116,6 +117,8 @@ class ResultTableModel(QAbstractTableModel):
                 return _COLOR_MISMATCH
             if sec in ("unmatched", "subtotal_unmatched"):
                 return _COLOR_UNMATCHED
+            if sec == "subtotal_exact":
+                return _COLOR_WHITE
             return None
 
         if role == Qt.ForegroundRole:
